@@ -8,3 +8,4 @@ gotrue
 storage3
 realtime
 httpx
+msal
