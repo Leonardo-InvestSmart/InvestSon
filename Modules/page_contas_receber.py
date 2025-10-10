@@ -225,7 +225,7 @@ def page_notas_pendentes():
             "status"
         ]
         colunas_exibir = [c for c in colunas_exibir if c in pendentes.columns]
-        st.dataframe(pendentes[colunas_exibir], use_container_width=True)
+        st.dataframe(pendentes[colunas_exibir], width="stretch")
     else:
         st.subheader("Notas Pendentes")
         st.success("Não há pendências de upload no momento.")
@@ -245,7 +245,7 @@ def page_notas_pendentes():
             "data_upload"
         ]
         colunas_exibir = [c for c in colunas_exibir if c in emitidas.columns]
-        st.dataframe(emitidas[colunas_exibir], use_container_width=True)
+        st.dataframe(emitidas[colunas_exibir], width="stretch")
     else:
         st.subheader("Notas Emitidas")
         st.info("Nenhuma nota foi inserida ainda.")

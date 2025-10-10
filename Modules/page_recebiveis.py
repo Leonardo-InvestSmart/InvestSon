@@ -271,7 +271,7 @@ def page_minhas_notas(usuario_nome: str):
             "data_solicitacao": "Data Solicitação",
             "observacoes": "Observações",
         })
-        st.dataframe(dfp, use_container_width=True)
+        st.dataframe(dfp, width="stretch")
 
     st.subheader("Notas Emitidas")
     if emitidas.empty:
@@ -306,7 +306,7 @@ def page_minhas_notas(usuario_nome: str):
         edited = st.data_editor(
             dfe[["Razão Parceiro","Valor","Data Solicitação","PDF","XML","Confirmar envio"]],
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key="editor_emitidas",  # << chave estável
             column_config={
                 "Razão Parceiro": st.column_config.TextColumn("Razão Parceiro"),
@@ -368,7 +368,7 @@ def page_minhas_notas(usuario_nome: str):
         edited = st.data_editor(
             dfe[["Razão Parceiro","Valor","Data Solicitação","Desfazer envio"]],
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             key="editor_enviadas",
             column_config={
                 "Desfazer envio": st.column_config.CheckboxColumn(

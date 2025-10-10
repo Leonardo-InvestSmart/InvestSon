@@ -154,7 +154,7 @@ def adicionar_logo_sidebar():
     caminho_logo = os.path.join("assets", "investsmart_horizontal_branco.png")
     if os.path.exists(caminho_logo):
         with st.sidebar:
-            st.image(Image.open(caminho_logo), use_container_width=True)
+            st.image(Image.open(caminho_logo), width="stretch")
 
 def inject_base_css():
     # mantém seus estilos de botão (compatível com o tema acima)

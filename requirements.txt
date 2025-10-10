@@ -1,4 +1,4 @@
-streamlit
+streamlit==1.50.0
 pandas
 python-dateutil
 supabase
@@ -9,3 +9,4 @@ storage3
 realtime
 httpx
 msal
+streamlit-option-menu==0.3.13

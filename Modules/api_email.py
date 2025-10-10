@@ -35,7 +35,7 @@ class Mail:
             return result["access_token"]
         raise Exception("Erro na autenticação:", result)
 
-    def send(self, email, subject, html, cc=None, attachment=None, filename=None):
+    def send(self, email, subject, html, cc=None, attachment=None, filename=None, attachments=None):
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
@@ -57,27 +57,30 @@ class Mail:
                 {"emailAddress": {"address": address}} for address in cc
             ]
 
-        if attachment:
-            with open(attachment, "rb") as f:
-                file_bytes = f.read()
+        # normaliza para lista de anexos
+        files = []
+        if attachments and isinstance(attachments, (list, tuple)):
+            files = list(attachments)
+        elif attachment:
+            files = [attachment]
 
-            if not filename:
-                filename = os.path.basename(attachment)
-
-            mime_type, _ = mimetypes.guess_type(filename)
-            if not mime_type:
-                mime_type = "application/octet-stream"
-
-            b64_content = base64.b64encode(file_bytes).decode()
-
-            message["message"]["attachments"] = [
-                {
+        if files:
+            att_payload = []
+            for path in files:
+                with open(path, "rb") as f:
+                    file_bytes = f.read()
+                fn = filename or os.path.basename(path)
+                mime_type, _ = mimetypes.guess_type(fn)
+                if not mime_type:
+                    mime_type = "application/octet-stream"
+                b64_content = base64.b64encode(file_bytes).decode()
+                att_payload.append({
                     "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": filename,
+                    "name": fn,
                     "contentType": mime_type,
                     "contentBytes": b64_content,
-                }
-            ]
+                })
+            message["message"]["attachments"] = att_payload
 
         response = requests.post(
             f"https://graph.microsoft.com/v1.0/users/{self.sender_email}/sendMail",
