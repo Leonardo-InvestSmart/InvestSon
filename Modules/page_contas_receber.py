@@ -1,14 +1,15 @@
 import streamlit as st
 from datetime import datetime
+import re
+import time
+import tempfile
+import os
 from db import carregar_notas, atualizar_nota
 from utils_storage import upload_streamlit_file, make_unique_object_path, sanitize_filename
 from .ui import inject_base_css
 from .validador_nota import extrair_dados_xml
 from .api_email import Mail
-import re
-import time
-import tempfile
-import os
+from streamlit_option_menu import option_menu
 
 # ==============================
 # Funções auxiliares
@@ -31,12 +32,32 @@ def norm_cnpj(v):
 # Sidebar
 # ==============================
 def sidebar_contas_receber():
-    """Sidebar da equipe Contas a Receber."""
-    st.sidebar.header("Menu")
-    if st.sidebar.button("Upload de Nota"):
-        st.session_state.menu = "Upload de Nota"
-    if st.sidebar.button("Notas Pendentes"):
-        st.session_state.menu = "Notas Pendentes"
+    st.sidebar.markdown('<div class="menu-nav">Menu de navegação</div>', unsafe_allow_html=True)
+
+    with st.sidebar:
+        pages = ["Upload de Nota", "Notas Pendentes"]
+        icon_map = {"Upload de Nota": "cloud-upload", "Notas Pendentes": "hourglass-split"}
+        icons = [icon_map.get(p, "circle") for p in pages]
+
+        default_index = pages.index(st.session_state.get("menu", "Upload de Nota")) \
+                        if st.session_state.get("menu") in pages else 0
+
+        escolha = option_menu(
+            menu_title=None,
+            options=pages,
+            icons=icons,
+            default_index=default_index,
+            styles={
+                "container": {"padding": "0!important", "background-color": "#9966ff"},
+                "icon": {"font-size": "16px"},
+                "nav-link": {"font-size": "14px", "text-align": "left", "margin": "0px", "padding": "8px 16px"},
+                "nav-link-selected": {"background-color": "#121212", "font-weight": "bold", "font-size": "14px"},
+            },
+        )
+
+        if st.session_state.get("menu") != escolha:
+            st.session_state.menu = escolha
+            st.rerun()
 
 # ==============================
 # Página de upload de nota

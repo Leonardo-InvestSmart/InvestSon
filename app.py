@@ -1,7 +1,9 @@
 import streamlit as st
+from Modules.ui import apply_theme, adicionar_logo_sidebar
 
-# Configuração básica da página
-st.set_page_config(page_title="Controle de Notas Fiscais", layout="wide")
+# Tema + CSS + sidebar aberta (padrão SmartC)
+apply_theme()
+adicionar_logo_sidebar()
 
 # Imports dos módulos
 from Modules.auth import (
