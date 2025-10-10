@@ -4,7 +4,7 @@ import os
 
 def apply_theme():
     st.set_page_config(
-        page_title="Controle de Notas Fiscais",
+        page_title="InvestSon",
         page_icon="assets/simbolo_roxo.svg",
         layout="wide",
         initial_sidebar_state="expanded"
