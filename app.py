@@ -1,5 +1,6 @@
 import streamlit as st
 from Modules.ui import apply_theme, adicionar_logo_sidebar
+import Modules.page_recebiveis as page_recebiveis
 
 # Tema + CSS + sidebar aberta (padrão SmartC)
 apply_theme()
@@ -11,12 +12,7 @@ from Modules.auth import (
     login_screen,
     signout_button,
 )
-from Modules.page_recebiveis import (
-    sidebar_recebiveis,
-    page_solicitar_nota,
-    page_minhas_notas,
-    page_cadastro_parceiro,
-)
+
 from Modules.page_contas_receber import (
     sidebar_contas_receber,
     page_upload_nota,
@@ -41,7 +37,7 @@ else:
 
     # Sidebar por equipe
     if equipe == "Recebiveis":
-        sidebar_recebiveis()
+        page_recebiveis.sidebar_recebiveis()
         if st.session_state.menu is None:
             st.session_state.menu = "Solicitar Nota"
 
@@ -58,11 +54,11 @@ else:
 
     if equipe == "Recebiveis":
         if menu == "Solicitar Nota":
-            page_solicitar_nota(usuario_nome)
+            page_recebiveis.page_solicitar_nota(usuario_nome)
         elif menu == "Minhas Notas":
-            page_minhas_notas(usuario_nome)
+            page_recebiveis.page_minhas_notas(usuario_nome)
         elif menu == "Cadastro Parceiro":
-            page_cadastro_parceiro()
+            page_recebiveis.page_cadastro_parceiro()
         else:
             st.info("Selecione uma opção no menu lateral.")
 
