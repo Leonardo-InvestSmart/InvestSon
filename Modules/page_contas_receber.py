@@ -3,6 +3,7 @@ from datetime import datetime
 import re
 import time
 import tempfile
+import pandas as pd
 import os
 from db import carregar_notas, atualizar_nota
 from utils_storage import upload_streamlit_file, make_unique_object_path, sanitize_filename
@@ -27,6 +28,38 @@ def norm_cnpj(v):
     if not v:
         return ""
     return re.sub(r"\D", "", str(v))
+
+def _fmt_moeda_ptbr(s):
+    # aceita str/float; retorna "R$ 264.821,33"
+    v = pd.to_numeric(s, errors="coerce")
+    return v.map(lambda x: "" if pd.isna(x) else "R$ " + f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+def _fmt_data_ptbr(s):
+    # aceita ISO, datetime ou str; retorna "dd/mm/aaaa às HH:MM:SS"
+    dt = pd.to_datetime(s, errors="coerce")
+    return dt.dt.strftime("%d/%m/%Y às %H:%M:%S").fillna("")
+
+def _normalize_envio(value: str) -> str:
+    """
+    Normaliza o texto do campo 'envio' para facilitar a comparação.
+    Ex.: 'E-mail', 'email', 'EMAIL ', 'e mail' -> 'email'
+    """
+    s = (value or "").strip().lower()
+    s = re.sub(r"[^a-z]", "", s)  # remove espaços, hífens, etc.
+    return s  # 'email', 'portal', 'naonecessario', ...
+
+def _read_uploadedfile_bytes(uploaded_file) -> bytes:
+    """
+    Garante a leitura dos bytes completos de um st.file_uploader UploadedFile
+    mesmo após outras leituras.
+    """
+    if uploaded_file is None:
+        return b""
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+    return uploaded_file.read() or b""
 
 # ==============================
 # Sidebar
@@ -100,9 +133,12 @@ def page_upload_nota():
         # Upload do PDF
         if pdf_file:
             destino_pdf = make_unique_object_path("notas_fiscais", subpasta, stem, ".pdf")
+            # 1) Envia ao Storage
             pdf_name = upload_streamlit_file("notas_fiscais", pdf_file, destino_pdf, overwrite=False)
+            # 2) Gera cópia temporária com bytes válidos para anexar no e-mail
+            pdf_bytes = _read_uploadedfile_bytes(pdf_file)  # <-- garante reposicionar e ler tudo
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-                tmp_pdf.write(pdf_file.read())
+                tmp_pdf.write(pdf_bytes)
                 temp_pdf_path = tmp_pdf.name
 
         # Upload + validação do XML
@@ -154,35 +190,120 @@ def page_upload_nota():
         # ==============================
         # Envio automático de e-mail
         # ==============================
+
         esperado = pendentes.loc[pendentes["id"] == nota_id].iloc[0]
-        envio_tipo = str(esperado.get("envio", "")).strip().lower()
 
-        if envio_tipo == "email":
-            emails = str(esperado.get("email_para", "")).split(";")
-            corpo = f"""
-            Prezados,<br><br>
-            Segue a nota fiscal solicitada no valor de R$ {esperado['valor']:.2f}.<br><br>
-            Qualquer dúvida nosso time está à disposição.<br><br>
-            Att,<br>Time de Comissões
-            """
+        # --- 1) Carregar 'envio' e 'email_para' preferencialmente do de_para_empresas ---
+        envio_tipo = str(esperado.get("envio", "")).strip()  # pode vir vazio na nota
+        emails_raw = (esperado.get("email_para") or "").strip()
 
-            anexos = []
-            if temp_pdf_path: anexos.append(temp_pdf_path)
-            if temp_xml_path: anexos.append(temp_xml_path)
+        try:
+            from .page_recebiveis import DF_FANTASIA  # cache global carregado no módulo
+            chave_cnpj = str(esperado.get("cnpj_parceiro") or "").strip()
+            df_cand = DF_FANTASIA[
+                DF_FANTASIA.get("id_parceiro", "").astype(str).str.strip() == chave_cnpj
+            ]
+            if df_cand.empty:
+                # fallback por nome parceiro
+                nomep = str(esperado.get("razao_parceiro") or "").strip().lower()
+                if "nome_parceiro" in DF_FANTASIA.columns:
+                    df_cand = DF_FANTASIA[DF_FANTASIA["nome_parceiro"].str.lower().str.strip() == nomep]
 
-            for dest in emails:
-                if dest.strip():
+            if not df_cand.empty:
+                # Se 'envio' da base de-para estiver preenchido, priorize-o
+                envio_tipo = df_cand.iloc[0].get("envio", envio_tipo)
+                # Se e-mails da nota estiverem vazios, pegue do de-para
+                if not emails_raw:
+                    emails_raw = str(df_cand.iloc[0].get("email_para", "")).strip()
+        except Exception as _e:
+            # não bloqueia; segue com o que já temos
+            pass
+
+        envio_norm = _normalize_envio(envio_tipo)
+
+        # --- 2) Só dispara e-mail se a configuração do parceiro indicar 'email' ---
+        if envio_norm == "email":
+            emails = [e.strip() for e in (emails_raw or "").split(";") if e.strip()]
+            if not emails:
+                st.warning("Configuração 'envio = email', mas nenhum destinatário encontrado (email_para vazio).")
+            else:
+                # Corpo do e-mail
+                try:
+                    valor_fmt = float(esperado["valor"])
+                    valor_fmt = f"{valor_fmt:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                except Exception:
+                    valor_fmt = str(esperado.get("valor", ""))
+                # --- Corpo do e-mail (texto solicitado) ---
+                corpo = (
+                    "Prezados, boa tarde.<br><br>"
+                    "Segue, em anexo, a nota fiscal.<br><br>"
+                    "Gentileza confirmar o recebimento.<br><br>"
+                    "Atenciosamente,<br>"
+                    "Time de Comissões"
+                )
+
+                # --- Descobrir 'fantasia' a partir do de-para (prioriza CNPJ; fallback por nome do parceiro) ---
+                fantasia_txt = None
+                try:
+                    from .page_recebiveis import DF_FANTASIA  # base de-para já carregada e normalizada
+                    chave_cnpj = str(esperado.get("cnpj_parceiro") or "").strip()
+
+                    # 1) Match por CNPJ do parceiro
+                    df_cand = DF_FANTASIA[
+                        DF_FANTASIA.get("id_parceiro", "").astype(str).str.strip() == chave_cnpj
+                    ]
+
+                    # 2) Fallback por nome do parceiro (razao_parceiro)
+                    if df_cand.empty and "nome_parceiro" in DF_FANTASIA.columns:
+                        nomep = str(esperado.get("razao_parceiro") or "").strip().lower()
+                        df_cand = DF_FANTASIA[
+                            DF_FANTASIA["nome_parceiro"].str.lower().str.strip() == nomep
+                        ]
+
+                    if not df_cand.empty and "fantasia" in df_cand.columns:
+                        fantasia_txt = str(df_cand.iloc[0].get("fantasia") or "").strip()
+                except Exception:
+                    pass
+
+                # 3) Último fallback: usa razao_parceiro se não achar no de-para
+                if not fantasia_txt:
+                    fantasia_txt = str(esperado.get("razao_parceiro") or "").strip()
+
+                # Normaliza removendo parenteses e conteúdo interno
+                fantasia_limpa = re.sub(r"\s*\(.*?\)\s*", "", fantasia_txt).strip()
+
+                # --- Nome do anexo: NF_{fantasia}_{data_upload}.pdf ---
+                data_upload_fmt = datetime.now().strftime("%d%m%Y")
+                pdf_filename_final = f"NF_{fantasia_limpa}_{data_upload_fmt}.pdf"
+
+                # --- Apenas o PDF será anexado e com cópia para o Jedson ---
+                erros_envio = []
+                for dest in emails:
                     try:
                         Mail().send(
-                            email=dest.strip(),
-                            subject="Nota Fiscal Emitida",
+                            email=dest,
+                            subject=f"Nota Fiscal - BeSmart - {fantasia_limpa}",
                             html=corpo,
-                            attachments=anexos
+                            cc=["jedson.silva@investsmart.com.br"],
+                            attachment=temp_pdf_path,          # só o PDF
+                            filename=pdf_filename_final        # força o nome correto do arquivo
                         )
+                        st.info(f"E-mail enviado para: {dest}")
                     except Exception as e:
+                        erros_envio.append((dest, str(e)))
                         st.error(f"Erro ao enviar email para {dest}: {e}")
 
-            atualizar_nota(nota_id, {"status": "Enviada"})
+
+                # Atualiza status se ao menos 1 e-mail foi enviado com sucesso
+                if len(emails) > len(erros_envio):
+                    atualizar_nota(nota_id, {"status": "Enviada"})
+                else:
+                    st.warning("Nenhum e-mail foi enviado com sucesso — status mantido em 'Emitida'.")
+
+        else:
+            # envios configurados como 'portal' ou 'nao necessario' não disparam e-mail
+            if envio_norm not in ("", "email"):
+                st.info(f"Envio configurado como '{envio_tipo}'. Nenhum e-mail será disparado.")
 
         # Mensagem de sucesso
         mensagem = st.empty()
@@ -213,39 +334,60 @@ def page_notas_pendentes():
     # Notas Pendentes
     # ----------------------------
     pendentes = historico[historico["pdf_path"].isna()].copy()
+    st.subheader("Notas Pendentes")
     if not pendentes.empty:
-        st.subheader("Notas Pendentes")
-        colunas_exibir = [
-            "razao_emissor",
-            "cnpj_emissor",
-            "razao_parceiro",
-            "cnpj_parceiro",
-            "valor",
-            "data_solicitacao",
-            "status"
-        ]
-        colunas_exibir = [c for c in colunas_exibir if c in pendentes.columns]
-        st.dataframe(pendentes[colunas_exibir], width="stretch")
+        # Seleção e formatação
+        cols_pend = ["razao_emissor","cnpj_emissor","razao_parceiro","cnpj_parceiro","valor","data_solicitacao","status"]
+        cols_pend = [c for c in cols_pend if c in pendentes.columns]
+        dfp = pendentes[cols_pend].copy()
+
+        # Formatações
+        if "valor" in dfp:              dfp["valor"] = _fmt_moeda_ptbr(dfp["valor"])
+        if "data_solicitacao" in dfp:   dfp["data_solicitacao"] = _fmt_data_ptbr(dfp["data_solicitacao"])
+
+        # Cabeçalhos
+        rename_pend = {
+            "razao_emissor":   "Razão Emissor",
+            "cnpj_emissor":    "CNPJ Emissor",
+            "razao_parceiro":  "Razão Parceiro",
+            "cnpj_parceiro":   "CNPJ Parceiro",
+            "valor":           "Valor",
+            "data_solicitacao":"Data Solicitação",
+            "status":          "Status",
+        }
+        dfp = dfp.rename(columns={k:v for k,v in rename_pend.items() if k in dfp.columns})
+
+        st.dataframe(dfp, use_container_width=True, hide_index=True)
     else:
-        st.subheader("Notas Pendentes")
         st.success("Não há pendências de upload no momento.")
+
 
     # ----------------------------
     # Notas Emitidas
     # ----------------------------
     emitidas = historico[historico["pdf_path"].notna()].copy()
+    st.subheader("Notas Emitidas")
     if not emitidas.empty:
-        st.subheader("Notas Emitidas")
-        colunas_exibir = [
-            "razao_emissor",
-            "cnpj_emissor",
-            "razao_parceiro",
-            "cnpj_parceiro",
-            "valor",
-            "data_upload"
-        ]
-        colunas_exibir = [c for c in colunas_exibir if c in emitidas.columns]
-        st.dataframe(emitidas[colunas_exibir], width="stretch")
+        cols_em = ["razao_emissor","cnpj_emissor","razao_parceiro","cnpj_parceiro","valor","data_upload"]
+        cols_em = [c for c in cols_em if c in emitidas.columns]
+        dfe = emitidas[cols_em].copy()
+
+        # Formatações
+        if "valor" in dfe:         dfe["valor"] = _fmt_moeda_ptbr(dfe["valor"])
+        if "data_upload" in dfe:   dfe["data_upload"] = _fmt_data_ptbr(dfe["data_upload"])
+
+        # Cabeçalhos
+        rename_em = {
+            "razao_emissor":  "Razão Emissor",
+            "cnpj_emissor":   "CNPJ Emissor",
+            "razao_parceiro": "Razão Parceiro",
+            "cnpj_parceiro":  "CNPJ Parceiro",
+            "valor":          "Valor",
+            "data_upload":    "Data Upload",
+        }
+        dfe = dfe.rename(columns={k:v for k,v in rename_em.items() if k in dfe.columns})
+
+        st.dataframe(dfe, use_container_width=True, hide_index=True)
     else:
-        st.subheader("Notas Emitidas")
         st.info("Nenhuma nota foi inserida ainda.")
+

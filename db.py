@@ -40,3 +40,20 @@ def carregar_empresas(use_service_fallback: bool = True) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Erro ao carregar 'de_para_empresas': {e}")
         return pd.DataFrame()
+    
+
+def salvar_empresa(empresa: dict) -> None:
+    """
+    Insere um novo parceiro/empresa na tabela public.de_para_empresas.
+    Requer SUPABASE_SERVICE_ROLE_KEY.
+    """
+    _assert_service()
+    supabase_service.table(TABLE_EMPRESAS).insert(empresa).execute()
+
+def atualizar_empresa(id_: int, dados: dict) -> None:
+    """
+    Atualiza campos de um registro existente em public.de_para_empresas pelo ID.
+    Requer SUPABASE_SERVICE_ROLE_KEY.
+    """
+    _assert_service()
+    supabase_service.table(TABLE_EMPRESAS).update(dados).eq("id", id_).execute()

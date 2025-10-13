@@ -15,6 +15,7 @@ from Modules.page_recebiveis import (
     sidebar_recebiveis,
     page_solicitar_nota,
     page_minhas_notas,
+    page_cadastro_parceiro,
 )
 from Modules.page_contas_receber import (
     sidebar_contas_receber,
@@ -60,6 +61,8 @@ else:
             page_solicitar_nota(usuario_nome)
         elif menu == "Minhas Notas":
             page_minhas_notas(usuario_nome)
+        elif menu == "Cadastro Parceiro":
+            page_cadastro_parceiro()
         else:
             st.info("Selecione uma opção no menu lateral.")
 
