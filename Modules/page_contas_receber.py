@@ -105,7 +105,9 @@ def page_upload_nota():
         st.info("Não existem notas cadastradas ainda.")
         return
 
-    pendentes = historico[historico["pdf_path"].isna()]
+    pendentes = historico[
+        historico.get("status", "").fillna("") == "Pendente"
+    ].copy()
     if pendentes.empty:
         st.info("Nenhuma solicitação pendente.")
         return
@@ -114,8 +116,16 @@ def page_upload_nota():
         "Selecione a solicitação:",
         pendentes["id"],
         format_func=lambda x: f"{pendentes.loc[pendentes['id']==x,'razao_parceiro'].values[0]} - "
-                              f"{pendentes.loc[pendentes['id']==x,'valor'].values[0]}"
+                            f"{pendentes.loc[pendentes['id']==x,'valor'].values[0]}"
     )
+
+    # NOVO: mostra observações da solicitação selecionada, se houver
+    try:
+        obs_sel = pendentes.loc[pendentes["id"] == nota_id, "observacoes"].astype(str).values[0]
+        if obs_sel and obs_sel.strip() and obs_sel.strip().lower() not in ("nan", "none"):
+            st.info(f"**Observações da solicitação:** {obs_sel.strip()}")
+    except Exception:
+        pass
 
     pdf_file = st.file_uploader("Upload PDF", type="pdf")
     xml_file = st.file_uploader("Upload XML", type="xml")
@@ -333,11 +343,19 @@ def page_notas_pendentes():
     # ----------------------------
     # Notas Pendentes
     # ----------------------------
-    pendentes = historico[historico["pdf_path"].isna()].copy()
+    # Filtra pendentes SEM upload e NÃO canceladas
+    pendentes = historico[
+        (historico["pdf_path"].isna()) &
+        (historico.get("status", "").fillna("") != "Cancelada")
+    ].copy()
+
     st.subheader("Notas Pendentes")
     if not pendentes.empty:
-        # Seleção e formatação
-        cols_pend = ["razao_emissor","cnpj_emissor","razao_parceiro","cnpj_parceiro","valor","data_solicitacao","status"]
+        # Seleção e formatação (inclui 'observacoes')
+        cols_pend = [
+            "razao_emissor","cnpj_emissor","razao_parceiro","cnpj_parceiro",
+            "valor","data_solicitacao","observacoes"
+        ]
         cols_pend = [c for c in cols_pend if c in pendentes.columns]
         dfp = pendentes[cols_pend].copy()
 
@@ -347,20 +365,19 @@ def page_notas_pendentes():
 
         # Cabeçalhos
         rename_pend = {
-            "razao_emissor":   "Razão Emissor",
-            "cnpj_emissor":    "CNPJ Emissor",
-            "razao_parceiro":  "Razão Parceiro",
-            "cnpj_parceiro":   "CNPJ Parceiro",
-            "valor":           "Valor",
-            "data_solicitacao":"Data Solicitação",
-            "status":          "Status",
+            "razao_emissor":    "Razão Emissor",
+            "cnpj_emissor":     "CNPJ Emissor",
+            "razao_parceiro":   "Razão Parceiro",
+            "cnpj_parceiro":    "CNPJ Parceiro",
+            "valor":            "Valor",
+            "data_solicitacao": "Data Solicitação",
+            "observacoes":      "Observações",
         }
-        dfp = dfp.rename(columns={k:v for k,v in rename_pend.items() if k in dfp.columns})
+        dfp = dfp.rename(columns={k: v for k, v in rename_pend.items() if k in dfp.columns})
 
         st.dataframe(dfp, use_container_width=True, hide_index=True)
     else:
         st.success("Não há pendências de upload no momento.")
-
 
     # ----------------------------
     # Notas Emitidas
